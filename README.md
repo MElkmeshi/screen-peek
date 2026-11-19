@@ -39,7 +39,7 @@ Download the latest build from [Releases](../../releases).
 
 ### macOS (14 or later, Apple silicon and Intel)
 
-1. Unzip `ScreenPeek-mac.zip` and move `ScreenPeek.app` to Applications.
+1. Open `ScreenPeek.dmg` and drag `ScreenPeek` into Applications.
 2. The app is not notarized, so the first time macOS blocks it. Open it once, then go to **System Settings → Privacy & Security → Open Anyway**. Alternatively, run `xattr -dr com.apple.quarantine /Applications/ScreenPeek.app`.
 3. Allow **Screen Recording** (for the preview) and **Accessibility** (for clicks and moving windows), then reopen the app.
 

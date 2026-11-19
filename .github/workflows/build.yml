@@ -20,7 +20,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ScreenPeek-mac
-          path: mac/build/ScreenPeek-mac.zip
+          path: mac/build/ScreenPeek.dmg
 
   windows:
     runs-on: windows-latest
@@ -54,6 +54,6 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: |
-            ScreenPeek-mac.zip
+            ScreenPeek.dmg
             ScreenPeek-win-x64.exe
             ScreenPeek-win-arm64.exe

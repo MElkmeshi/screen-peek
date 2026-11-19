@@ -11,5 +11,11 @@ cp "$bin/ScreenPeek" "$app/Contents/MacOS/ScreenPeek"
 cp Info.plist "$app/Contents/Info.plist"
 cp ../assets/icon/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 codesign --force --sign "${SIGN_IDENTITY:--}" "$app"
-ditto -c -k --keepParent "$app" build/ScreenPeek-mac.zip
+stage=build/dmg
+rm -rf "$stage" build/ScreenPeek.dmg
+mkdir -p "$stage"
+cp -R "$app" "$stage/"
+ln -s /Applications "$stage/Applications"
+hdiutil create -volname ScreenPeek -srcfolder "$stage" -fs HFS+ -format UDZO -ov build/ScreenPeek.dmg >/dev/null
+rm -rf "$stage"
 echo "built $PWD/$app"
