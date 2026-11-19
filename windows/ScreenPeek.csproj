@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>ScreenPeek</AssemblyName>
+    <RootNamespace>ScreenPeek</RootNamespace>
+    <Version>0.1.0</Version>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ApplicationIcon>../assets/icon/ScreenPeek.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../assets/icon/ScreenPeek.ico" LogicalName="ScreenPeek.ico" />
+  </ItemGroup>
+
+</Project>
