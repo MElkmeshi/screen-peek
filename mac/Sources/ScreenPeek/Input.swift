@@ -15,15 +15,39 @@ enum Input {
 
     static func click(at point: CGPoint, button: CGMouseButton, count: Int) {
         beginInjection()
+        if count == 1, bringOwnerToFront(of: point) { usleep(80_000) }
         warp(to: point)
         let source = CGEventSource(stateID: .hidSystemState)
+        CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?
+            .post(tap: .cghidEventTap)
+        usleep(15_000)
         let types: [CGEventType] = button == .right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp]
-        for type in types {
+        for (index, type) in types.enumerated() {
+            if index > 0 { usleep(40_000) }
             let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button)
             event?.setIntegerValueField(.mouseEventClickState, value: Int64(count))
             event?.post(tap: .cghidEventTap)
         }
-        scheduleReturn(after: 0.08)
+        scheduleReturn(after: 0.15)
+    }
+
+    private static func bringOwnerToFront(of point: CGPoint) -> Bool {
+        guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        let me = ProcessInfo.processInfo.processIdentifier
+        for info in windows {
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != me,
+                  let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
+                  bounds.contains(point)
+            else { continue }
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  let app = NSRunningApplication(processIdentifier: pid), !app.isActive
+            else { return false }
+            let axApp = AXUIElementCreateApplication(pid)
+            return AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue) == .success
+        }
+        return false
     }
 
     static func scroll(at point: CGPoint, dx: CGFloat, dy: CGFloat) {

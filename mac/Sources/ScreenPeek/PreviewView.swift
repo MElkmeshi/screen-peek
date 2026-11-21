@@ -84,12 +84,16 @@ final class PreviewView: NSView {
         return CGPoint(x: (point.x - rect.minX) / rect.width, y: (point.y - rect.minY) / rect.height)
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override func mouseDown(with event: NSEvent) {}
+
+    override func rightMouseDown(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) {
         guard let f = fraction(of: event) else { return }
         onClick?(f, .left, event.clickCount)
     }
 
-    override func rightMouseDown(with event: NSEvent) {
+    override func rightMouseUp(with event: NSEvent) {
         guard let f = fraction(of: event) else { return }
         onClick?(f, .right, event.clickCount)
     }
