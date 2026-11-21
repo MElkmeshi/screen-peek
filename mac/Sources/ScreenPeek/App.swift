@@ -27,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastSafeCursor: CGPoint?
     private var monitors: [Any] = []
     private var restartGeneration = 0
+    private let statusLabel = NSTextField(labelWithString: "")
+    private var statusReset: DispatchWorkItem?
+    private static let toolbarHeight: CGFloat = 30
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         requestPermissions()
@@ -53,6 +56,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let point = self?.targetPoint(for: fraction) else { return }
             Input.scroll(at: point, dx: dx, dy: dy)
         }
+        preview.onPull = { [weak self] fraction in
+            guard let self, let point = self.targetPoint(for: fraction) else { return }
+            if WindowMover.pullWindow(at: point, to: self.homeDisplay()) {
+                self.notify("Pulled window to this screen")
+            } else {
+                NSSound.beep()
+                self.notify("No window there")
+            }
+        }
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
@@ -78,13 +90,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.contentView = preview
+        panel.contentView = buildContent()
+        panel.setContentSize(NSSize(width: preview.frame.width, height: preview.frame.height + Self.toolbarHeight))
         if !panel.setFrameUsingName("ScreenPeekPanel"), let screen = NSScreen.main {
             let v = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: v.maxX - panel.frame.width - 16, y: v.minY + 16))
         }
         panel.setFrameAutosaveName("ScreenPeekPanel")
         panel.orderFrontRegardless()
+    }
+
+    private func buildContent() -> NSView {
+        let buttons = [
+            toolbarButton("Send", "arrow.right.square", #selector(sendFrontWindow),
+                          "Send the window you're using to the target screen (⌃⌥⌘→)"),
+            toolbarButton("Back", "arrow.left.square", #selector(bringFrontWindowBack),
+                          "Bring the window you're using back to this screen (⌃⌥⌘←)"),
+            toolbarButton("Center", "scope", #selector(centerFrontWindow),
+                          "Center the window you're using on its screen (⌃⌥⌘C)"),
+            toolbarButton("Fix Stuck", "wand.and.stars", #selector(fixStuckWindows),
+                          "Move every window that sits across two screens fully onto one screen (⌃⌥⌘F)"),
+        ]
+        statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        statusLabel.toolTip = "⌥-click a window in the preview to pull it onto this screen"
+        statusLabel.stringValue = "⌥-click a window to pull it here"
+
+        let toolbar = NSStackView(views: buttons + [statusLabel])
+        toolbar.orientation = .horizontal
+        toolbar.spacing = 4
+        toolbar.edgeInsets = NSEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: preview.frame.width, height: preview.frame.height + Self.toolbarHeight))
+        for view in [preview, toolbar] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            preview.topAnchor.constraint(equalTo: container.topAnchor),
+            preview.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            preview.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            preview.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
+            toolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            toolbar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            toolbar.heightAnchor.constraint(equalToConstant: Self.toolbarHeight),
+        ])
+        return container
+    }
+
+    private func toolbarButton(_ title: String, _ symbol: String, _ action: Selector, _ tip: String) -> NSButton {
+        let button = FirstMouseButton(title: title, target: self, action: action)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        button.imagePosition = .imageLeading
+        button.bezelStyle = .accessoryBarAction
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        button.toolTip = tip
+        return button
+    }
+
+    private func notify(_ message: String) {
+        statusLabel.stringValue = message
+        statusReset?.cancel()
+        let reset = DispatchWorkItem { [weak self] in self?.statusLabel.stringValue = "⌥-click a window to pull it here" }
+        statusReset = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: reset)
+    }
+
+    private func homeDisplay() -> CGDirectDisplayID {
+        if let screen = panel.screen, let id = Displays.id(of: screen), id != targetID { return id }
+        return CGMainDisplayID()
     }
 
     private func buildStatusItem() {
@@ -103,7 +181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         addItem(menu, panel.isVisible ? "Hide Preview" : "Show Preview", #selector(togglePreview), "p", hotKeyMask)
         addItem(menu, "Send Front Window to Target Screen", #selector(sendFrontWindow), arrowRight, hotKeyMask)
-        addItem(menu, "Bring Front Window to Main Screen", #selector(bringFrontWindowBack), arrowLeft, hotKeyMask)
+        addItem(menu, "Bring Front Window Back", #selector(bringFrontWindowBack), arrowLeft, hotKeyMask)
+        addItem(menu, "Center Front Window", #selector(centerFrontWindow), "c", hotKeyMask)
+        addItem(menu, "Fix Windows Stuck Across Screens", #selector(fixStuckWindows), "f", hotKeyMask)
         addItem(menu, "Keep Cursor Off Target Screen", #selector(toggleCursorLock), "l", hotKeyMask).state = cursorLocked ? .on : .off
         addItem(menu, "Flash Border When Screen Changes", #selector(toggleFlash), "", []).state = flashOnChange ? .on : .off
         menu.addItem(.separator())
@@ -135,6 +215,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotKeys.register(keyCode: kVK_RightArrow) { MainActor.assumeIsolated { [weak self] in self?.sendFrontWindow() } }
         hotKeys.register(keyCode: kVK_LeftArrow) { MainActor.assumeIsolated { [weak self] in self?.bringFrontWindowBack() } }
         hotKeys.register(keyCode: kVK_ANSI_L) { MainActor.assumeIsolated { [weak self] in self?.toggleCursorLock() } }
+        hotKeys.register(keyCode: kVK_ANSI_C) { MainActor.assumeIsolated { [weak self] in self?.centerFrontWindow() } }
+        hotKeys.register(keyCode: kVK_ANSI_F) { MainActor.assumeIsolated { [weak self] in self?.fixStuckWindows() } }
     }
 
     private func installCursorLock() {
@@ -182,9 +264,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let size = CGDisplayBounds(id).size
         preview.aspect = size
-        panel.contentAspectRatio = size
         let width = panel.contentRect(forFrameRect: panel.frame).width
-        panel.setContentSize(NSSize(width: width, height: width * size.height / size.width))
+        panel.setContentSize(NSSize(width: width, height: width * size.height / size.width + Self.toolbarHeight))
         panel.title = Displays.name(for: id)
 
         Task {
@@ -208,12 +289,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func sendFrontWindow() {
-        guard let id = targetID else { return NSSound.beep() }
-        if !WindowMover.moveFrontWindow(to: Displays.visibleFrame(for: id)) { NSSound.beep() }
+        guard let id = targetID, WindowMover.moveFrontWindow(to: Displays.visibleFrame(for: id)) else {
+            NSSound.beep()
+            return notify("No window to send")
+        }
+        notify("Sent to \(Displays.name(for: id))")
     }
 
     @objc private func bringFrontWindowBack() {
-        if !WindowMover.moveFrontWindow(to: Displays.visibleFrame(for: CGMainDisplayID())) { NSSound.beep() }
+        guard WindowMover.centerFrontWindow(on: homeDisplay()) else {
+            NSSound.beep()
+            return notify("No window to bring back")
+        }
+        notify("Brought window back")
+    }
+
+    @objc private func centerFrontWindow() {
+        guard WindowMover.centerFrontWindow() else {
+            NSSound.beep()
+            return notify("No window to center")
+        }
+        notify("Centered")
+    }
+
+    @objc private func fixStuckWindows() {
+        let fixed = WindowMover.fixWindowsSpanningScreens()
+        notify(fixed == 0 ? "No stuck windows" : "Fixed \(fixed) window\(fixed == 1 ? "" : "s")")
     }
 
     @objc private func toggleCursorLock() {
@@ -230,6 +331,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         targetID = CGDirectDisplayID(sender.tag)
         restartCapture()
     }
+}
+
+final class FirstMouseButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 private extension CGRect {

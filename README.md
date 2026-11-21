@@ -17,7 +17,8 @@ You present on a projector or TV that faces the audience, and you can't see it f
 
 - **Live preview** of the second screen in a small floating window that stays on top and doesn't take focus.
 - **Click through.** Clicking in the preview clicks the same spot on the second screen, then the mouse jumps straight back. Double-click, right-click and scroll work too.
-- **Send windows with a hotkey.** One hotkey moves the window you're using to the second screen and fills it. Another brings it back.
+- **One-click window tools.** A button bar under the preview: **Send** moves the window you're using to the second screen and fills it, **Back** brings it to your screen, **Center** centers it, and **Fix Stuck** moves every window that sits half on each screen fully onto one screen.
+- **Pull a window back.** ⌥-click (macOS) or Ctrl-click (Windows) a window in the preview to pull it onto your screen, centered.
 - **Cursor lock** keeps your mouse from drifting onto the audience screen.
 - **Change flash.** A red border tells you the second screen just changed.
 - **Lightweight.** The preview is downscaled and captured at about 15 fps.
@@ -29,7 +30,10 @@ You present on a projector or TV that faces the audience, and you can't see it f
 | Show / hide preview | `⌃⌥⌘P` | `Ctrl+Alt+Shift+P` |
 | Send front window to the second screen | `⌃⌥⌘→` | `Ctrl+Alt+Shift+→` |
 | Bring front window back | `⌃⌥⌘←` | `Ctrl+Alt+Shift+←` |
+| Center front window on its screen | `⌃⌥⌘C` | `Ctrl+Alt+Shift+C` |
+| Fix windows stuck across two screens | `⌃⌥⌘F` | `Ctrl+Alt+Shift+F` |
 | Keep cursor off the second screen | `⌃⌥⌘L` | `Ctrl+Alt+Shift+L` |
+| Pull a window from the preview to your screen | `⌥`-click | `Ctrl`-click |
 
 The menu bar icon (macOS) or tray icon (Windows) lets you pick which screen to preview. To try ScreenPeek with a single screen, pick your main screen.
 

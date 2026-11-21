@@ -3,6 +3,7 @@ import AppKit
 final class PreviewView: NSView {
     var onClick: ((CGPoint, CGMouseButton, Int) -> Void)?
     var onScroll: ((CGPoint, CGFloat, CGFloat) -> Void)?
+    var onPull: ((CGPoint) -> Void)?
     var aspect = CGSize(width: 16, height: 9) { didSet { needsLayout = true } }
 
     private let imageLayer = CALayer()
@@ -90,7 +91,11 @@ final class PreviewView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard let f = fraction(of: event) else { return }
-        onClick?(f, .left, event.clickCount)
+        if event.modifierFlags.contains(.option) {
+            onPull?(f)
+        } else {
+            onClick?(f, .left, event.clickCount)
+        }
     }
 
     override func rightMouseUp(with event: NSEvent) {

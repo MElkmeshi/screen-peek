@@ -11,13 +11,21 @@ namespace ScreenPeek;
 internal sealed class PreviewForm : Form
 {
     private const uint HotKeyModifiers = MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT;
-    private const int HotKeyPreview = 1, HotKeySend = 2, HotKeyBack = 3, HotKeyLock = 4;
+    private const int HotKeyPreview = 1, HotKeySend = 2, HotKeyBack = 3, HotKeyLock = 4, HotKeyCenter = 5, HotKeyFix = 6;
+    private const string IdleHint = "Ctrl-click a window to pull it here";
     private static readonly (int Id, Keys Key)[] HotKeyMap =
-        [(HotKeyPreview, Keys.P), (HotKeySend, Keys.Right), (HotKeyBack, Keys.Left), (HotKeyLock, Keys.L)];
+    [
+        (HotKeyPreview, Keys.P), (HotKeySend, Keys.Right), (HotKeyBack, Keys.Left),
+        (HotKeyLock, Keys.L), (HotKeyCenter, Keys.C), (HotKeyFix, Keys.F),
+    ];
 
     private readonly Timer captureTimer = new() { Interval = 66 };
     private readonly Timer flashTimer = new() { Interval = 250 };
     private readonly NotifyIcon tray = new();
+    private readonly NoActivateToolStrip toolbar = new();
+    private readonly ToolStripLabel statusLabel = new(IdleHint);
+    private readonly Timer statusTimer = new() { Interval = 3000 };
+    private IntPtr lastForeground;
     private readonly CursorLock cursorLock;
     private Bitmap? frame;
     private byte[] previousPixels = [];
@@ -36,13 +44,23 @@ internal sealed class PreviewForm : Form
         DoubleBuffered = true;
         BackColor = Color.Black;
         StartPosition = FormStartPosition.Manual;
-        ClientSize = LogicalToDeviceUnits(new Size(480, 270));
+        BuildToolbar();
+        ClientSize = LogicalToDeviceUnits(new Size(480, 270)) + new Size(0, toolbar.Height);
         MinimumSize = LogicalToDeviceUnits(new Size(200, 140));
         var area = Screen.PrimaryScreen!.WorkingArea;
         Location = new Point(area.Right - Width - 16, area.Bottom - Height - 16);
 
         cursorLock = new CursorLock(AllowedCursorArea);
-        captureTimer.Tick += (_, _) => CaptureFrame();
+        captureTimer.Tick += (_, _) =>
+        {
+            TrackForeground();
+            CaptureFrame();
+        };
+        statusTimer.Tick += (_, _) =>
+        {
+            statusTimer.Stop();
+            statusLabel.Text = IdleHint;
+        };
         flashTimer.Tick += (_, _) =>
         {
             flashTimer.Stop();
@@ -112,6 +130,7 @@ internal sealed class PreviewForm : Form
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         foreach (var (id, _) in HotKeyMap) UnregisterHotKey(Handle, id);
         captureTimer.Dispose();
+        statusTimer.Dispose();
         flashTimer.Dispose();
         cursorLock.Dispose();
         tray.Visible = false;
@@ -129,7 +148,14 @@ internal sealed class PreviewForm : Form
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
-        if (TargetPoint(e.Location) is { } point) Injector.Click(point, e.Button);
+        if (TargetPoint(e.Location) is not { } point) return;
+        if (e.Button == MouseButtons.Left && (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+        {
+            if (WindowMover.Pull(point, HomeScreen())) Notify("Pulled window to this screen");
+            else Fail("No window there");
+            return;
+        }
+        Injector.Click(point, e.Button);
     }
 
     protected override void OnMouseWheel(MouseEventArgs e)
@@ -145,7 +171,7 @@ internal sealed class PreviewForm : Form
         if (Target is not { } target)
         {
             TextRenderer.DrawText(g, "No second screen connected.\nRight-click the ScreenPeek tray icon → Target Screen to test with this one.",
-                Font, ClientRectangle, Color.Gray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+                Font, PreviewArea(), Color.Gray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
             return;
         }
 
@@ -189,9 +215,16 @@ internal sealed class PreviewForm : Form
         return home.DeviceName == targetDevice ? null : home.Bounds;
     }
 
-    private Rectangle ContentRect()
+    private Rectangle PreviewArea()
     {
         var client = ClientRectangle;
+        client.Height = Math.Max(0, client.Height - toolbar.Height);
+        return client;
+    }
+
+    private Rectangle ContentRect()
+    {
+        var client = PreviewArea();
         if (Target is not { } target || client.Width < 2 || client.Height < 2) return client;
         var b = target.Bounds;
         var scale = Math.Min((double)client.Width / b.Width, (double)client.Height / b.Height);
@@ -290,6 +323,8 @@ internal sealed class PreviewForm : Form
             case HotKeySend: SendFrontWindow(); break;
             case HotKeyBack: BringFrontWindowBack(); break;
             case HotKeyLock: cursorLock.Enabled = !cursorLock.Enabled; break;
+            case HotKeyCenter: CenterFrontWindow(); break;
+            case HotKeyFix: FixStuckWindows(); break;
         }
     }
 
@@ -300,12 +335,74 @@ internal sealed class PreviewForm : Form
 
     private void SendFrontWindow()
     {
-        if (Target is not { } target || !WindowMover.MoveForegroundWindow(target)) SystemSounds.Beep.Play();
+        if (Target is { } target && WindowMover.Maximize(CurrentWindow(), target)) Notify($"Sent to {target.DeviceName.TrimStart('\\', '.')}");
+        else Fail("No window to send");
     }
 
     private void BringFrontWindowBack()
     {
-        if (!WindowMover.MoveForegroundWindow(HomeScreen())) SystemSounds.Beep.Play();
+        if (WindowMover.Center(CurrentWindow(), HomeScreen())) Notify("Brought window back");
+        else Fail("No window to bring back");
+    }
+
+    private void CenterFrontWindow()
+    {
+        if (WindowMover.Center(CurrentWindow())) Notify("Centered");
+        else Fail("No window to center");
+    }
+
+    private void FixStuckWindows()
+    {
+        var count = WindowMover.FixWindowsSpanningScreens();
+        Notify(count == 0 ? "No stuck windows" : $"Fixed {count} window{(count == 1 ? "" : "s")}");
+    }
+
+    private IntPtr CurrentWindow()
+    {
+        var foreground = GetForegroundWindow();
+        return WindowMover.IsMovable(foreground) ? foreground : lastForeground;
+    }
+
+    private void TrackForeground()
+    {
+        var foreground = GetForegroundWindow();
+        if (WindowMover.IsMovable(foreground)) lastForeground = foreground;
+    }
+
+    private void Notify(string message)
+    {
+        statusLabel.Text = message;
+        statusTimer.Stop();
+        statusTimer.Start();
+    }
+
+    private void Fail(string message)
+    {
+        SystemSounds.Beep.Play();
+        Notify(message);
+    }
+
+    private void BuildToolbar()
+    {
+        toolbar.Dock = DockStyle.Bottom;
+        toolbar.GripStyle = ToolStripGripStyle.Hidden;
+        toolbar.RenderMode = ToolStripRenderMode.System;
+        toolbar.CanOverflow = false;
+        AddToolbarButton("Send \u2192", "Send the window you're using to the target screen (Ctrl+Alt+Shift+\u2192)", SendFrontWindow);
+        AddToolbarButton("\u2190 Back", "Bring the window you're using back to this screen (Ctrl+Alt+Shift+\u2190)", BringFrontWindowBack);
+        AddToolbarButton("Center", "Center the window you're using on its screen (Ctrl+Alt+Shift+C)", CenterFrontWindow);
+        AddToolbarButton("Fix Stuck", "Move every window that sits across two screens fully onto one screen (Ctrl+Alt+Shift+F)", FixStuckWindows);
+        statusLabel.ForeColor = SystemColors.GrayText;
+        statusLabel.ToolTipText = "Ctrl-click a window in the preview to pull it onto this screen";
+        toolbar.Items.Add(statusLabel);
+        Controls.Add(toolbar);
+    }
+
+    private void AddToolbarButton(string text, string tip, Action action)
+    {
+        var button = new ToolStripButton(text) { ToolTipText = tip, DisplayStyle = ToolStripItemDisplayStyle.Text };
+        button.Click += (_, _) => action();
+        toolbar.Items.Add(button);
     }
 
     private void BuildTray()
@@ -327,7 +424,9 @@ internal sealed class PreviewForm : Form
         AddItem(menu, "Keep Cursor Off Target Screen", "Ctrl+Alt+Shift+L", () => cursorLock.Enabled = !cursorLock.Enabled)
             .Checked = cursorLock.Enabled;
         AddItem(menu, "Flash Border When Screen Changes", null, () => flashOnChange = !flashOnChange).Checked = flashOnChange;
-        menu.Items.Add(new ToolStripMenuItem("Move front window: Ctrl+Alt+Shift+→ to target, ← back") { Enabled = false });
+        AddItem(menu, "Fix Windows Stuck Across Screens", "Ctrl+Alt+Shift+F", FixStuckWindows);
+        AddItem(menu, "Center Last Used Window", "Ctrl+Alt+Shift+C", CenterFrontWindow);
+        menu.Items.Add(new ToolStripMenuItem("Move window: Ctrl+Alt+Shift+→ to target, ← back") { Enabled = false });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Target Screen") { Enabled = false });
         foreach (var screen in Screen.AllScreens)
@@ -359,5 +458,18 @@ internal sealed class PreviewForm : Form
     {
         using var stream = typeof(PreviewForm).Assembly.GetManifestResourceStream("ScreenPeek.ico")!;
         return new Icon(stream, size);
+    }
+}
+
+internal sealed class NoActivateToolStrip : ToolStrip
+{
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_MOUSEACTIVATE)
+        {
+            m.Result = MA_NOACTIVATE;
+            return;
+        }
+        base.WndProc(ref m);
     }
 }
